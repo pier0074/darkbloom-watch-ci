@@ -89,6 +89,24 @@ jobs:
           git pull --rebase --autostash
           git push
 
+      - name: Say so if the run failed
+        # A failed run writes nothing to watch.log — the script never got far
+        # enough to log. Without this the Mac would see a quiet log and a
+        # healthy-looking history, which is exactly what a stopped job looks
+        # like. So the runner reports its own death on the same channel.
+        if: failure()
+        env:
+          NTFY_URL: ${{ secrets.NTFY_URL_DARKBLOOM }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$NTFY_URL" ] || exit 0
+          curl -fsS --max-time 10 \
+            -H 'Title: Darkbloom Watch: the scheduled check failed' \
+            -H 'Priority: high' -H 'Tags: warning' \
+            -d "The hourly run on GitHub did not finish. Nothing was captured for this hour.
+
+          $RUN_URL" "$NTFY_URL" >/dev/null || true
+
       - name: Keep the schedule alive
         # GitHub disables a public repository's cron after 60 days without
         # activity here, and every commit above lands in the other
