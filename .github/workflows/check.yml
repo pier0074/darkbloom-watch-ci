@@ -1,0 +1,103 @@
+# Runs darkbloom-watch on a schedule, so the check keeps happening while the
+# Mac that owns it is closed.
+#
+# This repository is public for one reason: GitHub bills macOS runners at ten
+# times the rate of Linux ones, and standard runners are free for public
+# repositories. It holds no code — the watcher itself stays private and is
+# checked out here with a token. What it captures is pushed straight back to
+# that private repository.
+name: check
+
+on:
+  schedule:
+    # Every hour on the hour, UTC. GitHub queues scheduled jobs and can run
+    # them several minutes late; the watcher does not care, as it compares
+    # against a stored baseline rather than a clock.
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  # Two runs at once would both read the baseline, and the second would find
+  # nothing to report.
+  group: darkbloom-check
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # only for the heartbeat commit in this repository
+
+jobs:
+  check:
+    runs-on: macos-latest
+    env:
+      # The Mac writes local timestamps into the log and files the daily
+      # record by local day. A runner on UTC would interleave two clocks in
+      # one history.
+      TZ: Europe/Zurich
+
+    steps:
+      - name: Check out this repository
+        # Only so the heartbeat below has somewhere to commit.
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: Check out the watcher
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.WATCH_REPO || 'pier0074/darkbloom-watch' }}
+          token: ${{ secrets.WATCH_REPO_TOKEN }}
+          path: watch
+
+      - name: Settings for this run
+        env:
+          NTFY_URL: ${{ secrets.NTFY_URL_DARKBLOOM }}
+        run: |
+          # Written here rather than committed: the topic is the only thing
+          # protecting that channel. There is no desktop to notify on a
+          # runner, and no keychain, so mail stays off.
+          umask 077
+          cat > watch/darkbloom-watch.conf <<EOF
+          NTFY_URL="${NTFY_URL}"
+          NOTIFY_MACOS="no"
+          NOTIFY_EMAIL="no"
+          EOF
+
+      - name: Check
+        working-directory: watch
+        run: |
+          set +e
+          ./darkbloom-watch.sh
+          rc=$?
+          set -e
+          # 0 nothing new, 1 changes found — both are a successful run.
+          [ "$rc" -le 1 ] || exit "$rc"
+
+      - name: Push what was captured
+        working-directory: watch
+        run: |
+          rm -f darkbloom-watch.conf
+          git config user.name  'darkbloom-watch-ci'
+          git config user.email 'darkbloom-watch-ci@users.noreply.github.com'
+          git add data
+          if git diff --cached --quiet; then
+            echo 'Nothing captured.'; exit 0
+          fi
+          git commit -m "Capture $(date '+%Y-%m-%d %H:%M %Z')"
+          # The Mac commits to the same branch. Rebase rather than fail.
+          git pull --rebase --autostash
+          git push
+
+      - name: Keep the schedule alive
+        # GitHub disables a public repository's cron after 60 days without
+        # activity here, and every commit above lands in the other
+        # repository. One stamp a day is enough to stay awake.
+        if: github.event_name == 'schedule'
+        working-directory: ci
+        run: |
+          [ "$(date -u '+%H')" = '04' ] || exit 0
+          git config user.name  'darkbloom-watch-ci'
+          git config user.email 'darkbloom-watch-ci@users.noreply.github.com'
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > last-run
+          git add last-run
+          git diff --cached --quiet || git commit -m 'Heartbeat'
+          git push
