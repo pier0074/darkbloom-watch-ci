@@ -4,8 +4,8 @@
 # This repository is public for one reason: GitHub bills macOS runners at ten
 # times the rate of Linux ones, and standard runners are free for public
 # repositories. It holds no code — the watcher itself stays private and is
-# checked out here with a token. What it captures is pushed straight back to
-# that private repository.
+# checked out here with a deploy key. What it captures is pushed straight
+# back to that private repository.
 name: check
 
 on:
@@ -45,7 +45,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ vars.WATCH_REPO || 'pier0074/darkbloom-watch' }}
-          token: ${{ secrets.WATCH_REPO_TOKEN }}
+          # A deploy key rather than a token: it reaches that one repository
+          # and nothing else in the account, and does not expire.
+          ssh-key: ${{ secrets.WATCH_DEPLOY_KEY }}
           path: watch
 
       - name: Settings for this run
