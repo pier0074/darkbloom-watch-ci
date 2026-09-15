@@ -9,7 +9,11 @@ name: check
 
 on:
   schedule:
-    - cron: '0 * * * *'     # every hour, UTC. GitHub may start it late.
+    # Three chances an hour, none at :00. GitHub treats schedules as best
+    # effort and drops runs under load, worst at the top of the hour — here
+    # it created 23 of ~91 hourly runs. The run itself exits at once if an
+    # earlier one already checked in this hour.
+    - cron: '7,27,47 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -60,7 +64,9 @@ jobs:
         # activity here, and every real commit lands in the other repository.
         if: github.event_name == 'schedule'
         run: |
-          [ "$(date -u '+%H')" = '04' ] || exit 0
+          # Once a day is plenty, but a single fixed hour could be one of the
+          # dropped ones for weeks; any run between 04:00 and 07:59 UTC counts.
+          case "$(date -u '+%H')" in 04|05|06|07) ;; *) exit 0 ;; esac
           git clone -q --depth 1 \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" beat
           cd beat
