@@ -3,25 +3,28 @@
 #
 # This repository is public for one reason: GitHub bills macOS runners at ten
 # times the Linux rate, and standard runners are free for public
-# repositories. It is a cron entry and nothing more — the watcher, and what a
-# run actually does, live in the private repository this checks out.
+# repositories. It holds no code — the watcher, and what a run actually does,
+# live in the private repository this checks out.
 name: check
 
 on:
-  schedule:
-    # Three chances an hour, none at :00. GitHub treats schedules as best
-    # effort and drops runs under load, worst at the top of the hour — here
-    # it created 23 of ~91 hourly runs. The run itself exits at once if an
-    # earlier one already checked in this hour.
-    - cron: '7,27,47 * * * *'
+  # Started every hour by cron-job.org through GitHub's API. GitHub's own
+  # schedule is not used: it dropped three runs in four, and a started run is
+  # not dropped. Without a schedule there is also no 60-day inactivity rule,
+  # so no heartbeat commit is needed to keep this repository awake.
   workflow_dispatch:
+    inputs:
+      source:
+        description: 'cron for the hourly trigger; anything else always runs'
+        required: false
+        default: manual
 
 concurrency:
   group: darkbloom-check    # two runs would share one baseline
   cancel-in-progress: false
 
 permissions:
-  contents: write           # only for the heartbeat below
+  contents: read            # this repository is only read; the other is reached by deploy key
 
 jobs:
   check:
@@ -43,11 +46,13 @@ jobs:
       - name: Check
         env:
           NTFY_URL: ${{ secrets.NTFY_URL_DARKBLOOM }}
+          NTFY_EMAIL: ${{ secrets.NTFY_EMAIL_DARKBLOOM }}
+          RUN_SOURCE: ${{ inputs.source }}
         run: watch/ci-run.sh
 
       - name: Say so if the run failed
         # A run that dies writes nothing to the log, so from the Mac a broken
-        # schedule and a quiet market look identical.
+        # run and a quiet market look identical.
         if: failure()
         env:
           NTFY_URL: ${{ secrets.NTFY_URL_DARKBLOOM }}
@@ -58,23 +63,3 @@ jobs:
             -H 'Priority: high' -H 'Tags: warning' \
             -d "The hourly run did not finish. Nothing was captured for this hour. $RUN_URL" \
             "$NTFY_URL" >/dev/null || true
-
-      - name: Keep the schedule alive
-        # GitHub switches off a public repository's cron after 60 days with no
-        # activity here, and every real commit lands in the other repository.
-        if: github.event_name == 'schedule'
-        run: |
-          # Once a day is plenty, but a single fixed hour could be one of the
-          # dropped ones for weeks; any run between 04:00 and 07:59 UTC counts.
-          case "$(date -u '+%H')" in 04|05|06|07) ;; *) exit 0 ;; esac
-          git clone -q --depth 1 \
-            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" beat
-          cd beat
-          git config user.name  'darkbloom-watch-ci'
-          git config user.email 'darkbloom-watch-ci@users.noreply.github.com'
-          # The date alone, so the several runs in that window make one
-          # commit a day rather than one each.
-          date -u '+%Y-%m-%d' > last-run
-          git add last-run
-          git diff --cached --quiet || git commit -q -m 'Heartbeat'
-          git push -q
