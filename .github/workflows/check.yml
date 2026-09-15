@@ -72,7 +72,9 @@ jobs:
           cd beat
           git config user.name  'darkbloom-watch-ci'
           git config user.email 'darkbloom-watch-ci@users.noreply.github.com'
-          date -u '+%Y-%m-%dT%H:%M:%SZ' > last-run
+          # The date alone, so the several runs in that window make one
+          # commit a day rather than one each.
+          date -u '+%Y-%m-%d' > last-run
           git add last-run
           git diff --cached --quiet || git commit -q -m 'Heartbeat'
           git push -q
