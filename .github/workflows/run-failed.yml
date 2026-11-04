@@ -1,0 +1,56 @@
+# Says so when an hourly run did not finish, whatever stopped it.
+#
+# This is a separate workflow for one reason: the alert it replaces lived
+# inside the check job itself, as a step with `if: failure()`. On 2026-11-04
+# eight runs in sixty were cancelled with "the job was not acquired by Runner
+# of type hosted" — no runner was ever given, so no step ran, so the step that
+# was meant to report the failure could not. GitHub's email was the only
+# signal. A `workflow_run` listener fires when the run *completes*, including
+# when it is cancelled in the queue, and it is nowhere near that runner.
+name: say if a run failed
+
+on:
+  workflow_run:
+    workflows: [check]        # matches `name:` in check.yml
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read              # to read why the run stopped
+
+jobs:
+  tell:
+    if: github.event.workflow_run.conclusion != 'success'
+    # Linux: this exists to report that a macOS runner was unavailable, so it
+    # must not want one. It is also the pool least likely to be short.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Work out what stopped it, then push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NTFY_URL: ${{ secrets.NTFY_URL_DARKBLOOM }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          STARTED: ${{ github.event.workflow_run.run_started_at }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          # A job that never got a machine has no step that reached a
+          # conclusion. That tells the two causes apart, and they call for
+          # different things: waiting, or reading the log.
+          ran="$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+                   --jq '[.jobs[].steps[] | select(.conclusion != null)] | length' 2>/dev/null || echo '')"
+          if [ "${ran:-0}" = 0 ]; then
+            why='no runner was ever given to it — GitHub capacity, not the script'
+          else
+            why="it ran and ended as $CONCLUSION — the log says why"
+          fi
+          echo "steps that reached a conclusion: ${ran:-unknown} · $why"
+          [ -n "$NTFY_URL" ] || { echo 'No ntfy topic set; nothing to push.'; exit 0; }
+          curl -fsS --max-time 10 \
+            -H 'Title: Darkbloom Watch: an hourly run did not finish' \
+            -H 'Priority: high' -H 'Tags: warning' \
+            -d "Started $STARTED, ended as $CONCLUSION: $why. Nothing was captured for that hour. $RUN_URL" \
+            "$NTFY_URL" >/dev/null
+          echo 'Pushed to ntfy.'
