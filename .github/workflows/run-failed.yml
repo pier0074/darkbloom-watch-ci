@@ -41,7 +41,15 @@ jobs:
           # different things: waiting, or reading the log.
           ran="$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
                    --jq '[.jobs[].steps[] | select(.conclusion != null)] | length' 2>/dev/null || echo '')"
-          if [ "${ran:-0}" = 0 ]; then
+          if [ -z "$ran" ]; then
+            # The jobs call itself failed. Not knowing is not the same as
+            # knowing there was no runner.
+            why="it did not finish and GitHub would not say why; the run page will"
+          elif [ "$CONCLUSION" = cancelled ] && [ "$ran" = 0 ]; then
+            # Cancelled before anything started: a person stopped it, or a
+            # newer run in the concurrency group replaced it.
+            why='it was cancelled before any step started'
+          elif [ "$ran" = 0 ]; then
             why='no runner was ever given to it — GitHub capacity, not the script'
           else
             why="it ran and ended as $CONCLUSION — the log says why"

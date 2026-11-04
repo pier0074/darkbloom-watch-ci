@@ -55,17 +55,3 @@ jobs:
           NTFY_EMAIL: ${{ secrets.NTFY_EMAIL_DARKBLOOM }}
           RUN_SOURCE: ${{ inputs.source }}
         run: watch/ci-run.sh
-
-      - name: Say so if the run failed
-        # A run that dies writes nothing to the log, so from the Mac a broken
-        # run and a quiet market look identical.
-        if: failure()
-        env:
-          NTFY_URL: ${{ secrets.NTFY_URL_DARKBLOOM }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          [ -n "$NTFY_URL" ] || exit 0
-          curl -fsS --max-time 10 -H 'Title: Darkbloom Watch: the run failed' \
-            -H 'Priority: high' -H 'Tags: warning' \
-            -d "The hourly run did not finish. Nothing was captured for this hour. $RUN_URL" \
-            "$NTFY_URL" >/dev/null || true
