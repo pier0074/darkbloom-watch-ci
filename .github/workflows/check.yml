@@ -28,7 +28,13 @@ permissions:
 
 jobs:
   check:
-    runs-on: macos-latest
+    # Intel rather than arm64 (which is what macos-latest now means, macOS 26):
+    # on 2026-11-04 eight of sixty arm64 runs were cancelled with "the job was
+    # not acquired by Runner of type hosted", each after fifteen minutes in the
+    # queue, losing that hour. Intel is a separate pool, free and unlimited on
+    # public repositories like this one, and the larger machine (4 CPU, 14 GB).
+    # Nothing here is architecture-specific: bash, curl, osascript, git.
+    runs-on: macos-15-intel
     env:
       # The log is written in local time and the daily record is filed by
       # local day; a runner on UTC would put two clocks in one history.
