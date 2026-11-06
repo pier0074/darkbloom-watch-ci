@@ -21,7 +21,12 @@ on:
 
 concurrency:
   group: darkbloom-check    # two runs would share one baseline
-  cancel-in-progress: false
+  # A newer run replaces an older one rather than queueing behind it. It used
+  # to wait: when a run hung for 2 h 10 min on 2026-11-06, the retries at :30,
+  # :00 and :30 were each cancelled while queued and two hours went
+  # uncaptured. Superseding is safe because a run that has already checked in
+  # this hour makes the next one stand down anyway, inside ci-run.sh.
+  cancel-in-progress: true
 
 permissions:
   contents: read            # this repository is only read; the other is reached by deploy key
@@ -35,6 +40,10 @@ jobs:
     # public repositories like this one, and the larger machine (4 CPU, 14 GB).
     # Nothing here is architecture-specific: bash, curl, osascript, git.
     runs-on: macos-15-intel
+    # The work takes fifteen to twenty seconds. This is not a guess at how long
+    # it should take but a ceiling on how long a stuck one may hold the hour:
+    # it counts execution, not the time spent queueing for a runner.
+    timeout-minutes: 5
     env:
       # The log is written in local time and the daily record is filed by
       # local day; a runner on UTC would put two clocks in one history.

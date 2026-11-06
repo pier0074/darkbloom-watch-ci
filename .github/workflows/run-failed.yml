@@ -24,6 +24,7 @@ jobs:
     # Linux: this exists to report that a macOS runner was unavailable, so it
     # must not want one. It is also the pool least likely to be short.
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Work out what stopped it, then push
         env:
